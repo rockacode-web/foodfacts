@@ -8,32 +8,35 @@ datasource db {
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  scans        Scan[]
+  id             Int                @id @default(autoincrement())
+  name           String
+  email          String             @unique
+  passwordHash   String             @map("password_hash")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  scans          Scan[]
+  intakeEntries  DailyIntakeEntry[]
+  profile        UserProfile?
 
   @@map("users")
 }
 
 model Scan {
-  id              Int      @id @default(autoincrement())
-  userId          Int      @map("user_id")
-  imagePath       String   @map("image_path")
-  analysisMode    String   @map("analysis_mode")
+  id              Int                @id @default(autoincrement())
+  userId          Int                @map("user_id")
+  imagePath       String             @map("image_path")
+  analysisMode    String             @map("analysis_mode")
   summary         String?
-  healthScore     Float?   @map("health_score")
-  confidenceScore Float?   @map("confidence_score")
-  rawAiResponse   Json     @map("raw_ai_response")
-  createdAt       DateTime @default(now()) @map("created_at")
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  healthScore     Float?             @map("health_score")
+  confidenceScore Float?             @map("confidence_score")
+  rawAiResponse   Json               @map("raw_ai_response")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   nutritionFacts  NutritionFacts?
   warnings        Warning[]
   alternatives    Alternative[]
   recipeIdeas     RecipeIdea[]
+  intakeEntries   DailyIntakeEntry[]
 
   @@index([userId, createdAt])
   @@map("scans")
@@ -87,4 +90,50 @@ model RecipeIdea {
 
   @@index([scanId])
   @@map("recipe_ideas")
+}
+model DailyIntakeEntry {
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  scanId           Int       @map("scan_id")
+  servings         Float     @default(1)
+  consumedAt       DateTime  @default(now()) @map("consumed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  calories         Float?
+  sodiumMg         Float?    @map("sodium_mg")
+  sugarG           Float?    @map("sugar_g")
+  saturatedFatG    Float?    @map("saturated_fat_g")
+  fiberG           Float?    @map("fiber_g")
+  proteinG         Float?    @map("protein_g")
+
+  sourceSummary    String?   @map("source_summary")
+  sourceFoodName   String?   @map("source_food_name")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scan             Scan      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+  @@index([scanId])
+  @@map("daily_intake_entries")
+}
+
+model UserProfile {
+  id                Int       @id @default(autoincrement())
+  userId            Int       @unique @map("user_id")
+  age               Int?
+  weightKg          Float?    @map("weight_kg")
+  heightCm          Float?    @map("height_cm")
+  gender            String?
+  diabetes          Boolean   @default(false)
+  hypertension      Boolean   @default(false)
+  highCholesterol   Boolean   @default(false) @map("high_cholesterol")
+  kidneyDisease     Boolean   @default(false) @map("kidney_disease")
+  lowSodiumGoal     Boolean   @default(false) @map("low_sodium_goal")
+  lowSugarGoal      Boolean   @default(false) @map("low_sugar_goal")
+  heartHealthyGoal  Boolean   @default(false) @map("heart_healthy_goal")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
 }
