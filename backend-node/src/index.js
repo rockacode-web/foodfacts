@@ -3,6 +3,8 @@ import cors from "cors";
 import multer from "multer";
 import { getRequiredEnv, loadEnv } from "./config/env.js";
 import { createAuthRouter } from "./routes/authRoutes.js";
+import { createIntakeRouter } from "./routes/intakeRoutes.js";
+import { createProfileRouter } from "./routes/profileRoutes.js";
 import { createScanRouter } from "./routes/scanRoutes.js";
 import { prisma } from "./utils/prisma.js";
 
@@ -10,6 +12,15 @@ loadEnv();
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
+const configuredOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  "http://localhost:5173",
+  "https://foodfacts-web-nu.vercel.app",
+  ...configuredOrigins
+]);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -20,7 +31,13 @@ const upload = multer({
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
   })
@@ -40,7 +57,9 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", createAuthRouter());
+app.use("/api/profile", createProfileRouter());
 app.use("/api/scans", createScanRouter(upload));
+app.use("/api/intake", createIntakeRouter());
 
 app.use((err, _req, res, _next) => {
   console.error("[backend-node] Unhandled error:", err);
