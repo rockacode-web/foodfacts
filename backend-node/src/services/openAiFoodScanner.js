@@ -24,6 +24,15 @@ Rules:
   - identifiedFood.productName
   - identifiedFood.category
   - identifiedFood.confidence (0 to 1)
+- Return ocrSignals describing how trustworthy the visible label text is:
+  - hasStructuredNutritionTable
+  - hasServingSize
+  - hasPercentDailyValues
+  - ingredientsVisible
+  - readableFieldCount
+  - keyNutrientCount
+  - textClarity = poor|fair|good|excellent
+  - noiseLevel = high|medium|low
 - The recipeIdeas array is still used by the app, but it must contain healthier swaps or replacement meal ideas, not ways to keep using the scanned item itself.
 - Each recipeIdeas item should be short, practical, beginner-friendly, and clearly framed as an alternative to the scanned food/category.
 - Return strict JSON only matching the schema.
@@ -152,6 +161,39 @@ function normalizeNutrition(rawNutrition) {
   return nutrition;
 }
 
+function normalizeOcrSignals(raw) {
+  const readableFieldCount =
+    typeof raw?.readableFieldCount === "number" && Number.isFinite(raw.readableFieldCount)
+      ? Math.max(0, Math.min(20, Math.round(raw.readableFieldCount)))
+      : 0;
+  const keyNutrientCount =
+    typeof raw?.keyNutrientCount === "number" && Number.isFinite(raw.keyNutrientCount)
+      ? Math.max(0, Math.min(8, Math.round(raw.keyNutrientCount)))
+      : 0;
+  const textClarity =
+    raw?.textClarity === "poor" ||
+    raw?.textClarity === "fair" ||
+    raw?.textClarity === "good" ||
+    raw?.textClarity === "excellent"
+      ? raw.textClarity
+      : "fair";
+  const noiseLevel =
+    raw?.noiseLevel === "high" || raw?.noiseLevel === "medium" || raw?.noiseLevel === "low"
+      ? raw.noiseLevel
+      : "medium";
+
+  return {
+    hasStructuredNutritionTable: Boolean(raw?.hasStructuredNutritionTable),
+    hasServingSize: Boolean(raw?.hasServingSize),
+    hasPercentDailyValues: Boolean(raw?.hasPercentDailyValues),
+    ingredientsVisible: Boolean(raw?.ingredientsVisible),
+    readableFieldCount,
+    keyNutrientCount,
+    textClarity,
+    noiseLevel
+  };
+}
+
 function normalizeAnalysis(raw) {
   if (!raw || typeof raw !== "object") {
     throw new OpenAiScannerError(
@@ -174,6 +216,7 @@ function normalizeAnalysis(raw) {
       )
     },
     nutrition: normalizeNutrition(raw.nutrition),
+    ocrSignals: normalizeOcrSignals(raw.ocrSignals),
     estimatedInsights: {
       sodiumLikelihood: safeString(raw.estimatedInsights?.sodiumLikelihood),
       processingLevel: safeString(raw.estimatedInsights?.processingLevel),

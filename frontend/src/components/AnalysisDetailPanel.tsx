@@ -34,10 +34,16 @@ type AnalysisDetailPanelProps = {
   detailError: string;
   onOpenLatestReport: () => void;
   onOpenSavedReport: () => void;
-  onAddLatestToIntake: () => void;
-  onAddSavedToIntake: () => void;
+  onAddLatestToIntake: (servings: number) => void | Promise<void>;
+  onAddSavedToIntake: (servings: number) => void | Promise<void>;
   latestLoggedToday: boolean;
   savedLoggedToday: boolean;
+  latestIntakeError: string;
+  savedIntakeError: string;
+  latestIntakeSuccess: string;
+  savedIntakeSuccess: string;
+  latestIntakeSaving: boolean;
+  savedIntakeSaving: boolean;
 };
 
 const formatStoredValue = (value: number | null | undefined, suffix: string) =>
@@ -206,7 +212,13 @@ const AnalysisDetailPanel = ({
   onAddLatestToIntake,
   onAddSavedToIntake,
   latestLoggedToday,
-  savedLoggedToday
+  savedLoggedToday,
+  latestIntakeError,
+  savedIntakeError,
+  latestIntakeSuccess,
+  savedIntakeSuccess,
+  latestIntakeSaving,
+  savedIntakeSaving
 }: AnalysisDetailPanelProps) => {
   const latestData = buildLatestPanelData(latestResult, onOpenLatestReport);
   const savedData = buildSavedPanelData(selectedDetail, onOpenSavedReport);
@@ -278,6 +290,9 @@ const AnalysisDetailPanel = ({
                 <AddToIntakeButton
                   onAdd={activeView === "latest" ? onAddLatestToIntake : onAddSavedToIntake}
                   addedToday={activeView === "latest" ? latestLoggedToday : savedLoggedToday}
+                  isSaving={activeView === "latest" ? latestIntakeSaving : savedIntakeSaving}
+                  error={activeView === "latest" ? latestIntakeError : savedIntakeError}
+                  successMessage={activeView === "latest" ? latestIntakeSuccess : savedIntakeSuccess}
                 />
               </div>
             )}

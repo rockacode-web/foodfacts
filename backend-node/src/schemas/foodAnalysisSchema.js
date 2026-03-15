@@ -18,6 +18,7 @@ export const foodAnalysisSchema = {
     "labelDetected",
     "identifiedFood",
     "nutrition",
+    "ocrSignals",
     "estimatedInsights",
     "ingredients",
     "allergens",
@@ -76,6 +77,44 @@ export const foodAnalysisSchema = {
         sugar_g: nutrientValueSchema,
         addedSugar_g: nutrientValueSchema,
         protein_g: nutrientValueSchema
+      }
+    },
+    ocrSignals: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "hasStructuredNutritionTable",
+        "hasServingSize",
+        "hasPercentDailyValues",
+        "ingredientsVisible",
+        "readableFieldCount",
+        "keyNutrientCount",
+        "textClarity",
+        "noiseLevel"
+      ],
+      properties: {
+        hasStructuredNutritionTable: { type: "boolean" },
+        hasServingSize: { type: "boolean" },
+        hasPercentDailyValues: { type: "boolean" },
+        ingredientsVisible: { type: "boolean" },
+        readableFieldCount: {
+          type: "integer",
+          minimum: 0,
+          maximum: 20
+        },
+        keyNutrientCount: {
+          type: "integer",
+          minimum: 0,
+          maximum: 8
+        },
+        textClarity: {
+          type: "string",
+          enum: ["poor", "fair", "good", "excellent"]
+        },
+        noiseLevel: {
+          type: "string",
+          enum: ["high", "medium", "low"]
+        }
       }
     },
     estimatedInsights: {

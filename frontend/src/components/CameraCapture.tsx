@@ -129,7 +129,6 @@ const CameraCapture = ({ onCapture, onError }: CameraCaptureProps) => {
       return;
     }
 
-    context.filter = "grayscale(1) contrast(1.4) brightness(1.05)";
     context.drawImage(
       video,
       cropX,
@@ -141,7 +140,6 @@ const CameraCapture = ({ onCapture, onError }: CameraCaptureProps) => {
       cropWidth,
       cropHeight
     );
-    context.filter = "none";
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.92)

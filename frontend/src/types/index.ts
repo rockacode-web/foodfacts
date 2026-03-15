@@ -92,6 +92,11 @@ export interface ConfidenceBreakdown {
   categoryConfidence: number;
   researchConfidence: number;
   analysisConfidence: number;
+  ocrReliability?: number;
+  nutritionCompleteness?: number;
+  labelStructure?: number;
+  ocrQuality?: number;
+  ingredientDetection?: number;
 }
 
 export interface AnalysisReasoningSummary {
@@ -204,17 +209,35 @@ export interface IntakeNutrients {
   proteinG: number | null;
 }
 
-export interface IntakeLogEntry {
-  id: string;
-  dateKey: string;
-  loggedAt: string;
-  source: "latest" | "saved";
-  sourceScanId: number | null;
-  title: string;
-  summary: string;
+export interface IntakeEntry {
+  id: number;
+  userId: number;
+  scanId: number;
   servings: number;
-  analysisMode: string | null;
-  healthScore: number | null;
-  confidenceScore: number | null;
-  nutrients: IntakeNutrients;
+  consumedAt: string;
+  createdAt: string;
+  calories: number | null;
+  sodiumMg: number | null;
+  sugarG: number | null;
+  saturatedFatG: number | null;
+  fiberG: number | null;
+  proteinG: number | null;
+  sourceSummary: string | null;
+  sourceFoodName: string | null;
+}
+
+export interface DailyIntakeTotals {
+  calories: number;
+  sodiumMg: number;
+  sugarG: number;
+  saturatedFatG: number;
+  fiberG: number;
+  proteinG: number;
+}
+
+export interface DailyIntakeResponse {
+  date: string;
+  totals: DailyIntakeTotals;
+  entries: IntakeEntry[];
+  insights: string[];
 }

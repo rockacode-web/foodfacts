@@ -6,19 +6,16 @@ import ScannerDashboard from "../components/ScannerDashboard";
 import IntakeDashboard from "../components/IntakeDashboard";
 import { useAuth } from "../auth/AuthProvider";
 import {
-  addEntryToDailyIntake,
-  getTodayIntakeEntries,
-  isScanLoggedToday,
-  removeIntakeEntry
-} from "../intake/storage";
-import {
   ApiError,
+  createIntakeEntry,
+  deleteIntakeEntry,
   deleteStoredScan,
   fetchScanDetail,
   fetchScanHistory,
+  fetchTodayIntake,
   mapStoredScanToResponse
 } from "../services/api";
-import type { ScanHistoryItem, ScanResponse, StoredScanDetail } from "../types";
+import type { DailyIntakeResponse, ScanHistoryItem, ScanResponse, StoredScanDetail } from "../types";
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -35,15 +32,50 @@ const DashboardPage = () => {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeDashboard, setActiveDashboard] = useState<"scanner" | "intake">("scanner");
   const [activeDetailView, setActiveDetailView] = useState<"latest" | "saved">("saved");
-  const [intakeEntries, setIntakeEntries] = useState(getTodayIntakeEntries());
+  const [intakeData, setIntakeData] = useState<DailyIntakeResponse | null>(null);
+  const [intakeLoading, setIntakeLoading] = useState(true);
+  const [intakeError, setIntakeError] = useState("");
+  const [intakeRemovingId, setIntakeRemovingId] = useState<number | null>(null);
+  const [latestIntakeError, setLatestIntakeError] = useState("");
+  const [savedIntakeError, setSavedIntakeError] = useState("");
+  const [latestIntakeSuccess, setLatestIntakeSuccess] = useState("");
+  const [savedIntakeSuccess, setSavedIntakeSuccess] = useState("");
+  const [savingIntakeTarget, setSavingIntakeTarget] = useState<"latest" | "saved" | null>(null);
 
   const handleUnauthorized = () => {
     logout();
   };
 
-  const refreshIntakeEntries = () => {
-    setIntakeEntries(getTodayIntakeEntries());
+  const clearLatestIntakeFeedback = () => {
+    setLatestIntakeError("");
+    setLatestIntakeSuccess("");
   };
+
+  const clearSavedIntakeFeedback = () => {
+    setSavedIntakeError("");
+    setSavedIntakeSuccess("");
+  };
+
+  const loadTodayIntake = async () => {
+    setIntakeLoading(true);
+    setIntakeError("");
+
+    try {
+      const intake = await fetchTodayIntake();
+      setIntakeData(intake);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setIntakeError(error instanceof Error ? error.message : "Could not load today's intake.");
+    } finally {
+      setIntakeLoading(false);
+    }
+  };
+
+  const isScanLoggedToday = (scanId: number | null | undefined) =>
+    scanId != null ? (intakeData?.entries || []).some((entry) => entry.scanId === scanId) : false;
 
   const handleSelectHistory = async (scanId: number) => {
     setActiveDetailView("saved");
@@ -94,70 +126,61 @@ const DashboardPage = () => {
 
   useEffect(() => {
     void loadHistory();
+    void loadTodayIntake();
   }, []);
 
-  const addLatestToIntake = () => {
-    if (!latestResult) {
+  const addLatestToIntake = async (servings: number) => {
+    clearLatestIntakeFeedback();
+    if (!latestResult?.scanId) {
+      setLatestIntakeError("This scan is not ready to log yet.");
       return;
     }
 
-    addEntryToDailyIntake({
-      source: "latest",
-      sourceScanId: latestResult.scanId ?? null,
-      title:
-        latestResult.identifiedFood?.productName ||
-        latestResult.identifiedFood?.category ||
-        "Scanned food",
-      summary: latestResult.plainLanguageSummary || "Scanned food logged from the latest result.",
-      analysisMode: latestResult.analysisMode || null,
-      healthScore: latestResult.healthScore ?? null,
-      confidenceScore:
-        typeof latestResult.confidence === "number"
-          ? Math.round(latestResult.confidence * 100)
-          : latestResult.confidence?.analysisConfidence || null,
-      nutrients: {
-        calories: latestResult.nutrition?.calories?.value ?? null,
-        sodiumMg: latestResult.nutrition?.sodium_mg?.value ?? null,
-        sugarG: latestResult.nutrition?.sugar_g?.value ?? null,
-        proteinG: latestResult.nutrition?.protein_g?.value ?? null
+    setSavingIntakeTarget("latest");
+    try {
+      await createIntakeEntry({
+        scanId: latestResult.scanId,
+        servings
+      });
+      setLatestIntakeSuccess("Added to today's intake.");
+      await loadTodayIntake();
+      setActiveDashboard("intake");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized();
+        return;
       }
-    });
-    refreshIntakeEntries();
-    setActiveDashboard("intake");
+      setLatestIntakeError(error instanceof Error ? error.message : "Could not add this scan to daily intake.");
+    } finally {
+      setSavingIntakeTarget(null);
+    }
   };
 
-  const addSavedToIntake = () => {
-    if (!selectedDetail) {
+  const addSavedToIntake = async (servings: number) => {
+    clearSavedIntakeFeedback();
+    if (!selectedDetail?.id) {
+      setSavedIntakeError("Select a saved scan before logging intake.");
       return;
     }
 
-    const raw = selectedDetail.rawAiResponse;
-    const identifiedFood =
-      raw && typeof raw === "object" && "identifiedFood" in raw && raw.identifiedFood && typeof raw.identifiedFood === "object"
-        ? (raw.identifiedFood as { productName?: string | null; category?: string | null })
-        : null;
-
-    addEntryToDailyIntake({
-      source: "saved",
-      sourceScanId: selectedDetail.id,
-      title:
-        identifiedFood?.productName ||
-        identifiedFood?.category ||
-        selectedDetail.summary ||
-        `Saved scan #${selectedDetail.id}`,
-      summary: selectedDetail.summary || "Stored scan logged into daily intake.",
-      analysisMode: selectedDetail.analysisMode || null,
-      healthScore: selectedDetail.healthScore ?? null,
-      confidenceScore: selectedDetail.confidenceScore ?? null,
-      nutrients: {
-        calories: selectedDetail.nutritionFacts?.calories ?? null,
-        sodiumMg: selectedDetail.nutritionFacts?.sodiumMg ?? null,
-        sugarG: selectedDetail.nutritionFacts?.sugarG ?? null,
-        proteinG: selectedDetail.nutritionFacts?.proteinG ?? null
+    setSavingIntakeTarget("saved");
+    try {
+      await createIntakeEntry({
+        scanId: selectedDetail.id,
+        servings
+      });
+      setSavedIntakeSuccess("Saved scan added to today's intake.");
+      await loadTodayIntake();
+      setActiveDashboard("intake");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized();
+        return;
       }
-    });
-    refreshIntakeEntries();
-    setActiveDashboard("intake");
+      setSavedIntakeError(error instanceof Error ? error.message : "Could not add this saved scan to daily intake.");
+    } finally {
+      setSavingIntakeTarget(null);
+    }
   };
 
   const handleDeleteHistory = async (scanId: number) => {
@@ -170,10 +193,9 @@ const DashboardPage = () => {
         setLatestResult(null);
       }
       const nextFocusId =
-        selectedId === scanId
-          ? history.find((item) => item.id !== scanId)?.id ?? null
-          : selectedId;
+        selectedId === scanId ? history.find((item) => item.id !== scanId)?.id ?? null : selectedId;
       await loadHistory(nextFocusId);
+      await loadTodayIntake();
       if (selectedId === scanId && !nextFocusId && latestResult) {
         setActiveDetailView("latest");
       }
@@ -188,14 +210,28 @@ const DashboardPage = () => {
     }
   };
 
+  const handleRemoveIntakeEntry = async (entryId: number) => {
+    setIntakeRemovingId(entryId);
+    setIntakeError("");
+
+    try {
+      await deleteIntakeEntry(entryId);
+      await loadTodayIntake();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setIntakeError(error instanceof Error ? error.message : "Could not remove intake entry.");
+    } finally {
+      setIntakeRemovingId(null);
+    }
+  };
+
   return (
     <main className="screen dashboard-screen">
       <section className="dashboard-shell dashboard-app-shell">
-        <DashboardHeader
-          user={user}
-          onOpenClassicScanner={() => navigate("/scan")}
-          onLogout={logout}
-        />
+        <DashboardHeader user={user} onOpenClassicScanner={() => navigate("/scan")} onLogout={logout} />
 
         <DashboardSwitcher activeView={activeDashboard} onChangeView={setActiveDashboard} />
 
@@ -217,10 +253,12 @@ const DashboardPage = () => {
             onUnauthorized={handleUnauthorized}
             onAnalysisComplete={(result) => {
               setLatestResult(result);
+              clearLatestIntakeFeedback();
               setActiveDetailView("latest");
               void loadHistory(result.scanId ?? null);
             }}
             onSelectHistory={(scanId) => {
+              clearSavedIntakeFeedback();
               void handleSelectHistory(scanId);
             }}
             onDeleteHistory={(scanId) => {
@@ -240,13 +278,21 @@ const DashboardPage = () => {
             onAddSavedToIntake={addSavedToIntake}
             latestLoggedToday={isScanLoggedToday(latestResult?.scanId)}
             savedLoggedToday={isScanLoggedToday(selectedDetail?.id)}
+            latestIntakeError={latestIntakeError}
+            savedIntakeError={savedIntakeError}
+            latestIntakeSuccess={latestIntakeSuccess}
+            savedIntakeSuccess={savedIntakeSuccess}
+            latestIntakeSaving={savingIntakeTarget === "latest"}
+            savedIntakeSaving={savingIntakeTarget === "saved"}
           />
         ) : (
           <IntakeDashboard
-            entries={intakeEntries}
+            intake={intakeData}
+            loading={intakeLoading}
+            error={intakeError}
+            removingId={intakeRemovingId}
             onRemoveEntry={(entryId) => {
-              removeIntakeEntry(entryId);
-              refreshIntakeEntries();
+              void handleRemoveIntakeEntry(entryId);
             }}
           />
         )}

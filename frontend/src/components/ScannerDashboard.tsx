@@ -24,10 +24,16 @@ type ScannerDashboardProps = {
   onDeleteHistory: (scanId: number) => void;
   onOpenLatestReport: () => void;
   onOpenSavedReport: () => void;
-  onAddLatestToIntake: () => void;
-  onAddSavedToIntake: () => void;
+  onAddLatestToIntake: (servings: number) => void | Promise<void>;
+  onAddSavedToIntake: (servings: number) => void | Promise<void>;
   latestLoggedToday: boolean;
   savedLoggedToday: boolean;
+  latestIntakeError: string;
+  savedIntakeError: string;
+  latestIntakeSuccess: string;
+  savedIntakeSuccess: string;
+  latestIntakeSaving: boolean;
+  savedIntakeSaving: boolean;
 };
 
 const ScannerDashboard = ({
@@ -51,69 +57,109 @@ const ScannerDashboard = ({
   onAddLatestToIntake,
   onAddSavedToIntake,
   latestLoggedToday,
-  savedLoggedToday
+  savedLoggedToday,
+  latestIntakeError,
+  savedIntakeError,
+  latestIntakeSuccess,
+  savedIntakeSuccess,
+  latestIntakeSaving,
+  savedIntakeSaving
 }: ScannerDashboardProps) => {
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const compactTitle =
-    latestResult?.identifiedFood?.productName ||
-    latestResult?.identifiedFood?.category ||
-    "No scan yet";
+    latestResult?.identifiedFood?.productName || latestResult?.identifiedFood?.category || "No scan yet";
   const compactSummary = latestResult?.plainLanguageSummary || "Run a scan to generate a fresh summary.";
   const compactConfidence =
     typeof latestResult?.confidence === "number"
       ? Math.round(latestResult.confidence * 100)
       : latestResult?.confidence?.analysisConfidence || null;
+  const compactScore = typeof latestResult?.healthScore === "number" ? `${latestResult.healthScore}/10` : "N/A";
+  const compactMode = (latestResult?.analysisMode || "scanner_ready").replace(/_/g, " ");
 
   return (
     <div className="scanner-dashboard">
+      <section className="scanner-overview-bar">
+        <div>
+          <p className="dashboard-kicker">Scanner workspace</p>
+          <h2 className="scanner-overview-title">Fast capture, quiet interface, detail on demand</h2>
+        </div>
+
+        <div className="scanner-overview-pills">
+          <span className="scanner-overview-pill">Scanner first</span>
+          <span className="scanner-overview-pill">History collapsed</span>
+          <span className="scanner-overview-pill">Analysis on demand</span>
+        </div>
+      </section>
+
       <div className="scanner-primary-grid">
         <article className="dashboard-panel scanner-hero-panel">
-          <div className="dashboard-panel-head">
-            <div>
-              <p className="dashboard-kicker">Scanner</p>
-              <h2 className="panel-title">Capture and analyze</h2>
-            </div>
-          </div>
+          <div className="scanner-capture-shell">
+            <div className="scanner-control-header">
+              <div>
+                <p className="dashboard-kicker scanner-stage-kicker">Scanner</p>
+                <h2 className="scanner-stage-title">Capture and analyze</h2>
+                <p className="scanner-stage-text">
+                  Upload or photograph a label, then open deeper analysis only when needed.
+                </p>
+              </div>
 
-          <ScanCapturePanel
-            layout="dashboard"
-            heading="Scan a food label with less noise"
-            subtitle="Keep the scanner front and center. Full analysis, warnings, and history stay collapsed until you choose to open them."
-            buttonLabel="Analyze and Save"
-            onUnauthorized={onUnauthorized}
-            onAnalysisComplete={onAnalysisComplete}
-          />
+              <div className="scanner-control-pills">
+                <span className="scanner-control-pill">Saved automatically</span>
+                <span className="scanner-control-pill">History on demand</span>
+              </div>
+            </div>
+
+            <ScanCapturePanel
+              layout="dashboard"
+              heading="Scan a food label"
+              subtitle="Use upload or camera to capture a clear nutrition label."
+              buttonLabel="Analyze and Save"
+              onUnauthorized={onUnauthorized}
+              onAnalysisComplete={onAnalysisComplete}
+            />
+          </div>
         </article>
 
         <article className="dashboard-panel scanner-summary-panel">
-          <div className="dashboard-panel-head">
+          <div className="dashboard-panel-head scanner-summary-head">
             <div>
               <p className="dashboard-kicker">Latest result</p>
               <h2 className="panel-title">Quick summary</h2>
             </div>
+            <span className="scanner-summary-status">
+              {latestResult ? "Ready to review" : "Waiting for a scan"}
+            </span>
           </div>
 
           {latestResult ? (
             <div className="compact-analysis-card">
-              <div className="compact-analysis-head">
+              <div className="compact-analysis-hero">
                 <div>
+                  <p className="compact-analysis-label">Current session</p>
                   <h3>{compactTitle}</h3>
                   <p>{compactSummary}</p>
                 </div>
+                <div className="compact-score-orb">
+                  <span>Score</span>
+                  <strong>{compactScore}</strong>
+                </div>
               </div>
 
-              <div className="compact-analysis-badges">
-                <span className="history-pill">
-                  Score {typeof latestResult.healthScore === "number" ? `${latestResult.healthScore}/10` : "N/A"}
-                </span>
-                <span className="history-pill">
-                  {compactConfidence != null ? `${compactConfidence}% confidence` : "Confidence unavailable"}
-                </span>
-                <span className="history-pill">
-                  {(latestResult.analysisMode || "partial_label").replace(/_/g, " ")}
-                </span>
+              <div className="compact-analysis-grid">
+                <div className="compact-analysis-stat">
+                  <span>Confidence</span>
+                  <strong>{compactConfidence != null ? `${compactConfidence}%` : "Unavailable"}</strong>
+                </div>
+                <div className="compact-analysis-stat">
+                  <span>Mode</span>
+                  <strong>{compactMode}</strong>
+                </div>
+                <div className="compact-analysis-stat">
+                  <span>Result state</span>
+                  <strong>{latestLoggedToday ? "Logged today" : "Not logged"}</strong>
+                </div>
               </div>
 
               <div className="compact-analysis-actions">
@@ -127,14 +173,19 @@ const ScannerDashboard = ({
                 <button type="button" className="ghost-action compact" onClick={onOpenLatestReport}>
                   Open full report
                 </button>
-                <AddToIntakeButton onAdd={onAddLatestToIntake} addedToday={latestLoggedToday} />
+                <AddToIntakeButton
+                  onAdd={onAddLatestToIntake}
+                  addedToday={latestLoggedToday}
+                  isSaving={latestIntakeSaving}
+                  error={latestIntakeError}
+                  successMessage={latestIntakeSuccess}
+                />
               </div>
             </div>
           ) : (
             <div className="compact-empty-card">
-              <p className="muted">
-                Your newest scan will appear here as a compact summary. Detailed warnings, nutrition, and swaps stay tucked away until you open them.
-              </p>
+              <div className="compact-empty-orb" />
+              <p className="muted">Your latest scan summary will appear here.</p>
             </div>
           )}
         </article>
@@ -160,26 +211,29 @@ const ScannerDashboard = ({
             onAddSavedToIntake={onAddSavedToIntake}
             latestLoggedToday={latestLoggedToday}
             savedLoggedToday={savedLoggedToday}
+            latestIntakeError={latestIntakeError}
+            savedIntakeError={savedIntakeError}
+            latestIntakeSuccess={latestIntakeSuccess}
+            savedIntakeSuccess={savedIntakeSuccess}
+            latestIntakeSaving={latestIntakeSaving}
+            savedIntakeSaving={savedIntakeSaving}
           />
         </CollapsibleAnalysisSection>
 
         <CollapsibleAnalysisSection
           title="Saved scan history"
-          subtitle="Keep history collapsed by default. Open it when you want to revisit or delete saved records."
+          subtitle="Open history only when you want to revisit or compare stored analyses."
           isOpen={isHistoryOpen}
           onToggle={() => setIsHistoryOpen((current) => !current)}
         >
           <HistoryList
             items={history}
             loading={historyLoading}
-            selectedId={selectedId}
             error={historyError}
-            onSelect={(scanId) => {
-              setIsAnalysisOpen(true);
-              onSelectHistory(scanId);
-            }}
-            onDelete={onDeleteHistory}
+            selectedId={selectedId}
             deletingId={deletingId}
+            onSelect={onSelectHistory}
+            onDelete={onDeleteHistory}
           />
         </CollapsibleAnalysisSection>
       </div>

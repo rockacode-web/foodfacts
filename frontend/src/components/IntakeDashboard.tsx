@@ -1,38 +1,53 @@
 import NutrientSummaryCards from "./NutrientSummaryCards";
 import IntakeFoodList from "./IntakeFoodList";
-import type { IntakeLogEntry } from "../types";
+import type { DailyIntakeResponse } from "../types";
 
 type IntakeDashboardProps = {
-  entries: IntakeLogEntry[];
-  onRemoveEntry: (entryId: string) => void;
+  intake: DailyIntakeResponse | null;
+  loading: boolean;
+  error: string;
+  removingId?: number | null;
+  onRemoveEntry: (entryId: number) => void;
 };
 
-const formatMetric = (value: number, suffix: string) =>
-  `${Math.round(value * 10) / 10}${suffix}`;
+const formatMetric = (value: number, suffix: string) => `${Math.round(value * 10) / 10}${suffix}`;
 
-const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
-  const totals = entries.reduce(
-    (acc, entry) => {
-      acc.calories += (entry.nutrients.calories || 0) * entry.servings;
-      acc.sodiumMg += (entry.nutrients.sodiumMg || 0) * entry.servings;
-      acc.sugarG += (entry.nutrients.sugarG || 0) * entry.servings;
-      acc.proteinG += (entry.nutrients.proteinG || 0) * entry.servings;
-      return acc;
-    },
-    { calories: 0, sodiumMg: 0, sugarG: 0, proteinG: 0 }
-  );
+const formatDateLabel = (value: string | undefined) => {
+  if (!value) {
+    return new Date().toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "short",
+      day: "numeric"
+    });
+  }
 
-  const warnings = [
-    totals.sodiumMg > 2300 ? "Sodium is above the common 2,300 mg daily limit." : null,
-    totals.sugarG > 50 ? "Added/free sugar exposure appears high for the day." : null,
-    entries.length > 0 && totals.proteinG < 40 ? "Protein is still low relative to a typical full day." : null
-  ].filter(Boolean) as string[];
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric"
+  });
+};
 
+const IntakeDashboard = ({
+  intake,
+  loading,
+  error,
+  removingId = null,
+  onRemoveEntry
+}: IntakeDashboardProps) => {
+  const entries = intake?.entries || [];
+  const totals = intake?.totals || {
+    calories: 0,
+    sodiumMg: 0,
+    sugarG: 0,
+    saturatedFatG: 0,
+    fiberG: 0,
+    proteinG: 0
+  };
+  const insights = intake?.insights || [];
+  const todayLabel = formatDateLabel(intake?.date);
   const topSodiumContributors = [...entries]
-    .sort(
-      (a, b) =>
-        ((b.nutrients.sodiumMg || 0) * b.servings) - ((a.nutrients.sodiumMg || 0) * a.servings)
-    )
+    .sort((a, b) => (b.sodiumMg || 0) - (a.sodiumMg || 0))
     .slice(0, 3);
 
   return (
@@ -41,20 +56,24 @@ const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
         <div className="dashboard-panel-head">
           <div>
             <p className="dashboard-kicker">Daily intake</p>
-            <h2 className="panel-title">Today’s nutrient picture</h2>
+            <h2 className="panel-title">Today's nutrient picture</h2>
+            <p className="muted">{todayLabel}</p>
           </div>
         </div>
 
         <p className="intake-hero-copy">
-          This dashboard summarizes foods you explicitly logged as consumed. Until a dedicated intake API is connected, these entries are stored locally in your browser for UI flow testing.
+          This dashboard summarizes foods you explicitly logged as consumed. Nutrient totals come from
+          the saved snapshot stored when each intake entry is created.
         </p>
+
+        {error ? <div className="error-banner">{error}</div> : null}
 
         <NutrientSummaryCards
           metrics={[
             {
               label: "Calories today",
               value: formatMetric(totals.calories, ""),
-              note: entries.length > 0 ? "Estimated from logged scans." : "No foods logged yet."
+              note: entries.length > 0 ? "Estimated from logged intake entries." : "No foods logged yet."
             },
             {
               label: "Sodium today",
@@ -64,7 +83,7 @@ const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
             {
               label: "Sugar today",
               value: formatMetric(totals.sugarG, " g"),
-              note: totals.sugarG > 50 ? "High for one day." : "Tracked from logged items."
+              note: entries.length > 0 ? "Tracked from stored nutrient snapshots." : "Will update after logging foods."
             },
             {
               label: "Protein today",
@@ -84,17 +103,19 @@ const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
             </div>
           </div>
 
-          {warnings.length > 0 ? (
+          {loading ? (
+            <p className="muted">Loading today's intake...</p>
+          ) : insights.length > 0 ? (
             <div className="warning-chip-row">
-              {warnings.map((warning) => (
-                <span className="warning-chip" key={warning}>
-                  {warning}
+              {insights.map((insight) => (
+                <span className="warning-chip" key={insight}>
+                  {insight}
                 </span>
               ))}
             </div>
           ) : (
             <p className="muted">
-              No major warning thresholds have been crossed yet. Keep logging foods to make this view more useful.
+              No major intake signals yet. Log foods from the scanner dashboard to build this view.
             </p>
           )}
         </section>
@@ -107,14 +128,16 @@ const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
             </div>
           </div>
 
-          {topSodiumContributors.length > 0 ? (
+          {loading ? (
+            <p className="muted">Loading contributor data...</p>
+          ) : topSodiumContributors.length > 0 ? (
             <div className="swap-ideas-list">
               {topSodiumContributors.map((entry) => (
                 <article className="swap-idea-card" key={entry.id}>
-                  <strong>{entry.title}</strong>
+                  <strong>{entry.sourceFoodName || `Logged scan #${entry.scanId}`}</strong>
                   <p>
-                    {Math.round(((entry.nutrients.sodiumMg || 0) * entry.servings) * 10) / 10} mg sodium
-                    from {entry.servings} serving{entry.servings === 1 ? "" : "s"}.
+                    {Math.round((entry.sodiumMg || 0) * 10) / 10} mg sodium from {entry.servings} serving
+                    {entry.servings === 1 ? "" : "s"}.
                   </p>
                 </article>
               ))}
@@ -133,7 +156,11 @@ const IntakeDashboard = ({ entries, onRemoveEntry }: IntakeDashboardProps) => {
           </div>
         </div>
 
-        <IntakeFoodList items={entries} onRemove={onRemoveEntry} />
+        {loading ? (
+          <p className="muted">Loading intake entries...</p>
+        ) : (
+          <IntakeFoodList items={entries} onRemove={onRemoveEntry} removingId={removingId} />
+        )}
       </section>
     </div>
   );

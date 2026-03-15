@@ -1,6 +1,9 @@
 node_modules/
 dist/
-.npm-cache/
+build/
 .env
 *.env
 !backend-node/.env.example
+.vscode/
+.idea/
+*.log

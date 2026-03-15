@@ -1,8 +1,9 @@
-import type { IntakeLogEntry } from "../types";
+import type { IntakeEntry } from "../types";
 
 type IntakeFoodListProps = {
-  items: IntakeLogEntry[];
-  onRemove: (entryId: string) => void;
+  items: IntakeEntry[];
+  onRemove: (entryId: number) => void;
+  removingId?: number | null;
 };
 
 const formatLoggedTime = (value: string) =>
@@ -11,7 +12,7 @@ const formatLoggedTime = (value: string) =>
     minute: "2-digit"
   });
 
-const IntakeFoodList = ({ items, onRemove }: IntakeFoodListProps) => {
+const IntakeFoodList = ({ items, onRemove, removingId = null }: IntakeFoodListProps) => {
   if (items.length === 0) {
     return (
       <p className="muted">
@@ -27,23 +28,26 @@ const IntakeFoodList = ({ items, onRemove }: IntakeFoodListProps) => {
         <article className="intake-food-item" key={item.id}>
           <div className="intake-food-copy">
             <div className="intake-food-head">
-              <h3>{item.title}</h3>
+              <h3>{item.sourceFoodName || `Logged scan #${item.scanId}`}</h3>
               <span className="history-pill">{item.servings} serving{item.servings === 1 ? "" : "s"}</span>
             </div>
-            <p className="intake-food-meta">
-              Logged {formatLoggedTime(item.loggedAt)} {item.analysisMode ? `• ${item.analysisMode.replace(/_/g, " ")}` : ""}
-            </p>
-            <p className="intake-food-summary">{item.summary}</p>
+            <p className="intake-food-meta">Logged {formatLoggedTime(item.consumedAt)}</p>
+            <p className="intake-food-summary">{item.sourceSummary || "Daily intake entry from a saved scan."}</p>
             <div className="intake-food-stats">
-              <span>{typeof item.nutrients.calories === "number" ? item.nutrients.calories * item.servings : "?"} cal</span>
-              <span>{typeof item.nutrients.sodiumMg === "number" ? item.nutrients.sodiumMg * item.servings : "?"} mg sodium</span>
-              <span>{typeof item.nutrients.sugarG === "number" ? item.nutrients.sugarG * item.servings : "?"} g sugar</span>
-              <span>{typeof item.nutrients.proteinG === "number" ? item.nutrients.proteinG * item.servings : "?"} g protein</span>
+              <span>{typeof item.calories === "number" ? item.calories : "?"} cal</span>
+              <span>{typeof item.sodiumMg === "number" ? item.sodiumMg : "?"} mg sodium</span>
+              <span>{typeof item.sugarG === "number" ? item.sugarG : "?"} g sugar</span>
+              <span>{typeof item.proteinG === "number" ? item.proteinG : "?"} g protein</span>
             </div>
           </div>
 
-          <button type="button" className="history-delete" onClick={() => onRemove(item.id)}>
-            Remove
+          <button
+            type="button"
+            className="history-delete"
+            onClick={() => onRemove(item.id)}
+            disabled={removingId === item.id}
+          >
+            {removingId === item.id ? "Removing..." : "Remove"}
           </button>
         </article>
       ))}

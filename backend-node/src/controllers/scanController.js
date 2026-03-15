@@ -59,6 +59,75 @@ function countNutrientsBySource(nutrition, source) {
   return Object.values(nutrition || {}).filter((item) => item?.source === source && item?.value != null).length;
 }
 
+const KEY_NUTRIENT_FIELDS = [
+  "calories",
+  "sodium_mg",
+  "sugar_g",
+  "protein_g",
+  "totalFat_g",
+  "saturatedFat_g"
+];
+
+function countVisibleKeyNutrients(nutrition, source = "label") {
+  return KEY_NUTRIENT_FIELDS.filter((key) => nutrition?.[key]?.source === source && nutrition?.[key]?.value != null).length;
+}
+
+function scoreTextClarity(value) {
+  if (value === "excellent") {
+    return 1;
+  }
+  if (value === "good") {
+    return 0.82;
+  }
+  if (value === "fair") {
+    return 0.55;
+  }
+  return 0.28;
+}
+
+function scoreNoiseLevel(value) {
+  if (value === "low") {
+    return 1;
+  }
+  if (value === "medium") {
+    return 0.6;
+  }
+  return 0.22;
+}
+
+function deriveOcrSignals(scan) {
+  const rawSignals = scan.ocrSignals || {};
+  const labelKeyNutrients = countVisibleKeyNutrients(scan.nutrition, "label");
+  const readableFieldBaseline = countNutrientsBySource(scan.nutrition, "label") + Math.min((scan.ingredients || []).length, 4);
+  const hasStructuredNutritionTable =
+    Boolean(rawSignals.hasStructuredNutritionTable) ||
+    (Boolean(scan.labelDetected) && countNutrientsBySource(scan.nutrition, "label") >= 3);
+  const hasServingSize = Boolean(rawSignals.hasServingSize);
+  const hasPercentDailyValues = Boolean(rawSignals.hasPercentDailyValues);
+  const ingredientsVisible = Boolean(rawSignals.ingredientsVisible) || (scan.ingredients || []).length > 0;
+  const readableFieldCount = Math.max(
+    readableFieldBaseline,
+    Number.isFinite(rawSignals.readableFieldCount) ? rawSignals.readableFieldCount : 0
+  );
+  const keyNutrientCount = Math.max(
+    labelKeyNutrients,
+    Number.isFinite(rawSignals.keyNutrientCount) ? rawSignals.keyNutrientCount : 0
+  );
+  const textClarity = rawSignals.textClarity || "fair";
+  const noiseLevel = rawSignals.noiseLevel || "medium";
+
+  return {
+    hasStructuredNutritionTable,
+    hasServingSize,
+    hasPercentDailyValues,
+    ingredientsVisible,
+    readableFieldCount,
+    keyNutrientCount,
+    textClarity,
+    noiseLevel
+  };
+}
+
 function buildConfidence(scan, research) {
   const nutritionValues = Object.values(scan.nutrition || {});
   const total = nutritionValues.length || 1;
@@ -67,7 +136,28 @@ function buildConfidence(scan, research) {
   const estimatedCount = countNutrientsBySource(scan.nutrition, "estimated_category");
   const unknownCount = countNutrientsBySource(scan.nutrition, "unknown");
   const coverage = (labelCount + researchCount + estimatedCount) / total;
+  const ocrSignals = deriveOcrSignals(scan);
   const labelCoverage = labelCount / total;
+  const readableFieldScore = clamp01(ocrSignals.readableFieldCount / 8);
+  const keyNutrientScore = clamp01(ocrSignals.keyNutrientCount / 5);
+  const completenessScore = clamp01(
+    countVisibleKeyNutrients(scan.nutrition, "label") / KEY_NUTRIENT_FIELDS.length
+  );
+  const structureScore = clamp01(
+    (Number(ocrSignals.hasStructuredNutritionTable) * 0.42) +
+      (Number(ocrSignals.hasServingSize) * 0.28) +
+      (Number(ocrSignals.hasPercentDailyValues) * 0.3)
+  );
+  const clarityScore = clamp01(
+    scoreTextClarity(ocrSignals.textClarity) * 0.7 + scoreNoiseLevel(ocrSignals.noiseLevel) * 0.3
+  );
+  const ingredientDetectionScore = ocrSignals.ingredientsVisible ? 1 : 0.2;
+  const ocrReliability = clamp01(
+    completenessScore * 0.38 +
+      structureScore * 0.26 +
+      clarityScore * 0.24 +
+      ingredientDetectionScore * 0.12
+  );
 
   const baseScanConfidence = clamp01(scan.confidence);
   const rawIdentityConfidence = clamp01(scan.identifiedFood?.confidence ?? baseScanConfidence);
@@ -94,27 +184,48 @@ function buildConfidence(scan, research) {
     : 0.12;
 
   const labelConfidence = scan.labelDetected
-    ? clamp01(Math.max(labelCoverage * 0.95, baseScanConfidence * 0.75, 0.3))
-    : clamp01(labelCoverage * 0.55);
+    ? clamp01(
+        ocrReliability * 0.56 +
+          labelCoverage * 0.18 +
+          readableFieldScore * 0.14 +
+          keyNutrientScore * 0.12
+      )
+    : clamp01(labelCoverage * 0.45 + clarityScore * 0.1);
 
   const researchConfidence = research?.used
     ? clamp01((research.matchScore || 0) * 0.8 + Math.min((research.filledFields || 0) / 5, 1) * 0.2)
     : 0;
 
   let analysisConfidence = 0;
-  if (labelCount >= 2) {
+  if (scan.labelDetected && labelCount >= 2) {
     analysisConfidence = clamp01(
-      labelConfidence * 0.56 + researchConfidence * 0.18 + categoryConfidence * 0.14 + coverage * 0.12
+      ocrReliability * 0.42 +
+        labelConfidence * 0.2 +
+        researchConfidence * 0.12 +
+        categoryConfidence * 0.1 +
+        coverage * 0.08 +
+        completenessScore * 0.08
     );
   } else if (research?.used) {
     analysisConfidence = clamp01(
-      researchConfidence * 0.5 + productConfidence * 0.2 + categoryConfidence * 0.15 + coverage * 0.15
+      researchConfidence * 0.46 +
+        productConfidence * 0.18 +
+        categoryConfidence * 0.14 +
+        coverage * 0.12 +
+        clarityScore * 0.1
     );
   } else if (estimatedCount >= 2 && categoryConfidence >= THRESHOLDS.categoryConfidenceMin) {
-    analysisConfidence = clamp01(categoryConfidence * 0.48 + coverage * 0.3 + productConfidence * 0.22);
+    analysisConfidence = clamp01(
+      categoryConfidence * 0.42 + coverage * 0.28 + productConfidence * 0.2 + clarityScore * 0.1
+    );
   } else {
     analysisConfidence = clamp01(
-      coverage * 0.28 + categoryConfidence * 0.34 + productConfidence * 0.2 + (1 - unknownCount / total) * 0.18
+      coverage * 0.22 +
+        categoryConfidence * 0.24 +
+        productConfidence * 0.16 +
+        (1 - unknownCount / total) * 0.12 +
+        clarityScore * 0.14 +
+        structureScore * 0.12
     );
   }
 
@@ -123,7 +234,12 @@ function buildConfidence(scan, research) {
     productConfidence,
     categoryConfidence,
     researchConfidence,
-    analysisConfidence
+    analysisConfidence,
+    ocrReliability,
+    nutritionCompleteness: completenessScore,
+    labelStructure: structureScore,
+    ingredientDetection: ingredientDetectionScore,
+    ocrQuality: clarityScore
   };
 }
 
@@ -364,7 +480,12 @@ function reasoningSummary(scan, research, evidence, mode) {
     productIdentified,
     researchAttempted: Boolean(research?.attempted),
     researchOutcome,
-    primaryEvidenceSource
+    primaryEvidenceSource,
+    readableLabelSignals: {
+      servingSize: Boolean(scan.ocrSignals?.hasServingSize),
+      percentDailyValues: Boolean(scan.ocrSignals?.hasPercentDailyValues),
+      ingredientsDetected: Boolean(scan.ocrSignals?.ingredientsVisible || (scan.ingredients || []).length > 0)
+    }
   };
 }
 
@@ -573,7 +694,11 @@ export async function analyzeScan(req, res, next) {
         product: toPercent(confidence.productConfidence),
         category: toPercent(confidence.categoryConfidence),
         research: toPercent(confidence.researchConfidence),
-        analysis: toPercent(confidence.analysisConfidence)
+        analysis: toPercent(confidence.analysisConfidence),
+        ocrReliability: toPercent(confidence.ocrReliability),
+        completeness: toPercent(confidence.nutritionCompleteness),
+        structure: toPercent(confidence.labelStructure),
+        clarity: toPercent(confidence.ocrQuality)
       },
       research: {
         attempted: researched.research.attempted,
@@ -661,7 +786,12 @@ export async function analyzeScan(req, res, next) {
         productConfidence: toPercent(confidence.productConfidence),
         categoryConfidence: toPercent(confidence.categoryConfidence),
         researchConfidence: toPercent(confidence.researchConfidence),
-        analysisConfidence: toPercent(confidence.analysisConfidence)
+        analysisConfidence: toPercent(confidence.analysisConfidence),
+        ocrReliability: toPercent(confidence.ocrReliability),
+        nutritionCompleteness: toPercent(confidence.nutritionCompleteness),
+        labelStructure: toPercent(confidence.labelStructure),
+        ocrQuality: toPercent(confidence.ocrQuality),
+        ingredientDetection: toPercent(confidence.ingredientDetection)
       },
       confidenceLabel: confidenceLabel(confidence.analysisConfidence),
       analysisReasoningSummary: reasoning,
@@ -684,6 +814,7 @@ export async function analyzeScan(req, res, next) {
         filledFields: researched.research.filledFields || 0
       },
       nutrition: analysis.nutrition,
+      ocrSignals: analysis.ocrSignals,
       estimatedInsights: analysis.estimatedInsights || defaultEstimatedInsights(),
       estimatedRanges: analysis.estimatedRanges || defaultEstimatedRanges(),
       warningsStatus,

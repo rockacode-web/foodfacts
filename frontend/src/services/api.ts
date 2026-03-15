@@ -3,6 +3,8 @@ import { clearStoredSession, getStoredToken } from "../auth/storage";
 import type {
   AuthSuccessResponse,
   AuthUser,
+  DailyIntakeResponse,
+  IntakeEntry,
   NutrientSource,
   NutritionMap,
   ScanHistoryItem,
@@ -10,7 +12,18 @@ import type {
   StoredScanDetail
 } from "../types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+function normalizeApiBaseUrl(rawBaseUrl?: string) {
+  const fallbackBaseUrl = "http://localhost:5000/api";
+  const trimmedBaseUrl = rawBaseUrl?.trim();
+
+  if (!trimmedBaseUrl) {
+    return fallbackBaseUrl;
+  }
+
+  return trimmedBaseUrl.endsWith("/api") ? trimmedBaseUrl : `${trimmedBaseUrl.replace(/\/+$/, "")}/api`;
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 type LegacyScanResponse = {
   message?: string;
@@ -90,6 +103,21 @@ type DeleteEnvelope = {
   status: "success" | "error";
   deleted?: boolean;
   id?: number;
+  message?: string;
+};
+
+type IntakeEntryEnvelope = {
+  status: "success" | "error";
+  entry?: IntakeEntry;
+  message?: string;
+};
+
+type TodayIntakeEnvelope = {
+  status: "success" | "error";
+  date?: string;
+  totals?: DailyIntakeResponse["totals"];
+  entries?: IntakeEntry[];
+  insights?: string[];
   message?: string;
 };
 
@@ -455,6 +483,23 @@ const normalizeStoredScan = (raw: StoredScanDetail): StoredScanDetail => ({
   recipeIdeas: Array.isArray(raw.recipeIdeas) ? raw.recipeIdeas : []
 });
 
+const normalizeIntakeEntry = (raw: IntakeEntry): IntakeEntry => ({
+  id: raw.id,
+  userId: raw.userId,
+  scanId: raw.scanId,
+  servings: typeof raw.servings === "number" ? raw.servings : 1,
+  consumedAt: raw.consumedAt,
+  createdAt: raw.createdAt,
+  calories: typeof raw.calories === "number" ? raw.calories : null,
+  sodiumMg: typeof raw.sodiumMg === "number" ? raw.sodiumMg : null,
+  sugarG: typeof raw.sugarG === "number" ? raw.sugarG : null,
+  saturatedFatG: typeof raw.saturatedFatG === "number" ? raw.saturatedFatG : null,
+  fiberG: typeof raw.fiberG === "number" ? raw.fiberG : null,
+  proteinG: typeof raw.proteinG === "number" ? raw.proteinG : null,
+  sourceSummary: typeof raw.sourceSummary === "string" ? raw.sourceSummary : null,
+  sourceFoodName: typeof raw.sourceFoodName === "string" ? raw.sourceFoodName : null
+});
+
 export const mapStoredScanToResponse = (scan: StoredScanDetail): ScanResponse => {
   const source = normalizeSource(scan.nutritionFacts?.sourceType);
   const rawAiResponse = scan.rawAiResponse || {};
@@ -634,5 +679,55 @@ export const deleteStoredScan = async (scanId: number): Promise<void> => {
     }
   } catch (error) {
     throw toApiError(error, "Could not delete scan.");
+  }
+};
+
+export const createIntakeEntry = async (payload: {
+  scanId: number;
+  servings: number;
+}): Promise<IntakeEntry> => {
+  try {
+    const response = await apiClient.post<IntakeEntryEnvelope>("/intake", payload);
+    if (response.data.status !== "success" || !response.data.entry) {
+      throw new ApiError(response.data.message || "Could not log intake entry.", 400);
+    }
+    return normalizeIntakeEntry(response.data.entry);
+  } catch (error) {
+    throw toApiError(error, "Could not log intake entry.");
+  }
+};
+
+export const fetchTodayIntake = async (): Promise<DailyIntakeResponse> => {
+  try {
+    const response = await apiClient.get<TodayIntakeEnvelope>("/intake/today");
+    if (
+      response.data.status !== "success" ||
+      typeof response.data.date !== "string" ||
+      !response.data.totals ||
+      !Array.isArray(response.data.entries) ||
+      !Array.isArray(response.data.insights)
+    ) {
+      throw new ApiError(response.data.message || "Could not load today's intake.", 500);
+    }
+
+    return {
+      date: response.data.date,
+      totals: response.data.totals,
+      entries: response.data.entries.map(normalizeIntakeEntry),
+      insights: response.data.insights
+    };
+  } catch (error) {
+    throw toApiError(error, "Could not load today's intake.");
+  }
+};
+
+export const deleteIntakeEntry = async (entryId: number): Promise<void> => {
+  try {
+    const response = await apiClient.delete<DeleteEnvelope>(`/intake/${entryId}`);
+    if (response.data.status !== "success") {
+      throw new ApiError(response.data.message || "Could not remove intake entry.", 500);
+    }
+  } catch (error) {
+    throw toApiError(error, "Could not remove intake entry.");
   }
 };
