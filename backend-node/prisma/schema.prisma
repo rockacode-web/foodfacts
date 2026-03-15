@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  scans        Scan[]
+
+  @@map("users")
+}
+
+model Scan {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @map("user_id")
+  imagePath       String   @map("image_path")
+  analysisMode    String   @map("analysis_mode")
+  summary         String?
+  healthScore     Float?   @map("health_score")
+  confidenceScore Float?   @map("confidence_score")
+  rawAiResponse   Json     @map("raw_ai_response")
+  createdAt       DateTime @default(now()) @map("created_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nutritionFacts  NutritionFacts?
+  warnings        Warning[]
+  alternatives    Alternative[]
+  recipeIdeas     RecipeIdea[]
+
+  @@index([userId, createdAt])
+  @@map("scans")
+}
+
+model NutritionFacts {
+  id            Int    @id @default(autoincrement())
+  scanId        Int    @unique @map("scan_id")
+  calories      Float?
+  sodiumMg      Float? @map("sodium_mg")
+  sugarG        Float? @map("sugar_g")
+  saturatedFatG Float? @map("saturated_fat_g")
+  fiberG        Float? @map("fiber_g")
+  proteinG      Float? @map("protein_g")
+  sourceType    String @map("source_type")
+  confidence    Float?
+  scan          Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@map("nutrition_facts")
+}
+
+model Warning {
+  id          Int    @id @default(autoincrement())
+  scanId      Int    @map("scan_id")
+  warningType String @map("warning_type")
+  warningText String @map("warning_text")
+  scan        Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@map("warnings")
+}
+
+model Alternative {
+  id          Int    @id @default(autoincrement())
+  scanId      Int    @map("scan_id")
+  title       String
+  description String
+  scan        Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@map("alternatives")
+}
+
+model RecipeIdea {
+  id          Int    @id @default(autoincrement())
+  scanId      Int    @map("scan_id")
+  title       String
+  description String
+  reason      String
+  scan        Scan   @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@map("recipe_ideas")
+}

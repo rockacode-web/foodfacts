@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.npm-cache/
+.env
+*.env
+!backend-node/.env.example
